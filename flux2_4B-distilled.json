@@ -21,6 +21,19 @@
       "title": "Prompt"
     }
   },
+  "82": {
+    "inputs": {
+      "filename_prefix": "conditioning/ComfyUI",
+      "conditioning": [
+        "75:74",
+        0
+      ]
+    },
+    "class_type": "SaveConditioning",
+    "_meta": {
+      "title": "Save Conditioning"
+    }
+  },
   "75:61": {
     "inputs": {
       "sampler_name": "euler"
@@ -58,22 +71,6 @@
       "title": "カスタムサンプラー（高度）"
     }
   },
-  "75:65": {
-    "inputs": {
-      "samples": [
-        "75:64",
-        0
-      ],
-      "vae": [
-        "75:72",
-        0
-      ]
-    },
-    "class_type": "VAEDecode",
-    "_meta": {
-      "title": "VAEデコード"
-    }
-  },
   "75:67": {
     "inputs": {
       "text": "",
@@ -107,7 +104,7 @@
   },
   "75:73": {
     "inputs": {
-      "noise_seed": 766058507781896
+      "noise_seed": 907990319152513
     },
     "class_type": "RandomNoise",
     "_meta": {
@@ -132,22 +129,6 @@
     "class_type": "VAELoader",
     "_meta": {
       "title": "VAEを読み込む"
-    }
-  },
-  "75:74": {
-    "inputs": {
-      "text": [
-        "76",
-        0
-      ],
-      "clip": [
-        "75:71",
-        0
-      ]
-    },
-    "class_type": "CLIPTextEncode",
-    "_meta": {
-      "title": "CLIP Text Encode (Positive Prompt)"
     }
   },
   "75:66": {
@@ -213,6 +194,38 @@
     "class_type": "CFGGuider",
     "_meta": {
       "title": "CFGガイダー"
+    }
+  },
+  "75:74": {
+    "inputs": {
+      "text": [
+        "76",
+        0
+      ],
+      "clip": [
+        "75:71",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "75:65": {
+    "inputs": {
+      "samples": [
+        "75:64",
+        0
+      ],
+      "vae": [
+        "75:72",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAEデコード"
     }
   }
 }

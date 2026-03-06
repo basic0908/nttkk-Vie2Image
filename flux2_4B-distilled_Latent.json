@@ -1,0 +1,75 @@
+{
+  "9": {
+    "inputs": {
+      "filename_prefix": "Flux2-HiL-Recursive",
+      "images": ["75:65", 0]
+    },
+    "class_type": "SaveImage"
+  },
+  "83": {
+    "inputs": {
+      "conditioning_path": "conditioning/ComfyUI_latent.cond"
+    },
+    "class_type": "LoadConditioning",
+    "_meta": {
+      "title": "Load Evolved Latent"
+    }
+  },
+  "75:61": {
+    "inputs": { "sampler_name": "euler" },
+    "class_type": "KSamplerSelect"
+  },
+  "75:64": {
+    "inputs": {
+      "noise": ["75:73", 0],
+      "guider": ["75:63", 0],
+      "sampler": ["75:61", 0],
+      "sigmas": ["75:62", 0],
+      "latent_image": ["75:66", 0]
+    },
+    "class_type": "SamplerCustomAdvanced"
+  },
+  "75:67": {
+    "inputs": { "text": "", "clip": ["75:71", 0] },
+    "class_type": "CLIPTextEncode"
+  },
+  "75:68": { "inputs": { "value": 1024 }, "class_type": "PrimitiveInt" },
+  "75:69": { "inputs": { "value": 1024 }, "class_type": "PrimitiveInt" },
+  "75:73": {
+    "inputs": { "noise_seed": 907990319152513 },
+    "class_type": "RandomNoise"
+  },
+  "75:71": {
+    "inputs": { "clip_name": "qwen_3_4b.safetensors", "type": "flux2", "device": "default" },
+    "class_type": "CLIPLoader"
+  },
+  "75:72": {
+    "inputs": { "vae_name": "flux2-vae.safetensors" },
+    "class_type": "VAELoader"
+  },
+  "75:66": {
+    "inputs": { "width": ["75:68", 0], "height": ["75:69", 0], "batch_size": 1 },
+    "class_type": "EmptyFlux2LatentImage"
+  },
+  "75:81": {
+    "inputs": { "unet_name": "flux-2-klein-4b.safetensors", "weight_dtype": "fp8_e4m3fn" },
+    "class_type": "UNETLoader"
+  },
+  "75:62": {
+    "inputs": { "steps": 4, "width": ["75:68", 0], "height": ["75:69", 0] },
+    "class_type": "Flux2Scheduler"
+  },
+  "75:63": {
+    "inputs": {
+      "cfg": 1,
+      "model": ["75:81", 0],
+      "positive": ["83", 0],
+      "negative": ["75:67", 0]
+    },
+    "class_type": "CFGGuider"
+  },
+  "75:65": {
+    "inputs": { "samples": ["75:64", 0], "vae": ["75:72", 0] },
+    "class_type": "VAEDecode"
+  }
+}

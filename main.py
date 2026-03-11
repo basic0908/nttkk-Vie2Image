@@ -36,9 +36,9 @@ class FluxInference:
             self.workflow_template = json.load(f)
 
         self.workflow_file_latent = (
-            "flux2_9B-distilled_latent.json"
+            "flux2_9B-distilled.json"
             if self.args.params == "9B"
-            else "flux2_4B-distilled_latent.json"
+            else "flux2_4B-distilled.json"
         )
 
         self.unet_node_id = "75:85" if self.args.params == "9B" else "75:81"
@@ -118,7 +118,7 @@ class FluxInference:
         parser.add_argument(
             "--prompt",
             type=str,
-            default="a little girl wearing a bright yellow dress and a copper crown is riding a badger through a field of flowers",
+            default="a blue pikmin in on a mountain",
             help="生成する画像のプロンプト"
         )
 

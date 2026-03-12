@@ -1,282 +1,191 @@
-import json
-import argparse
 import os
-from datetime import datetime
-import uuid
-import random
-import requests
 import sys
-import keyboard
-import numpy as np
+import json
+import requests
+import uuid
+import websocket
+import urllib.parse
+import torch
+import msvcrt  # Native Windows module to capture Esc/Enter keys
+import time
 
+# --- IMPORT YOUR LOCAL VECTOR GENERATOR ---
+import vector_generator 
 
-class FluxInference:
+# --- EXPERIMENT CONFIGURATION ---
+BASE_PATH = r"C:\Users\ibara\OneDrive\ドキュメント\GitHub\nttkk-Vie2Image"
+SERVER_ADDRESS = "13.193.97.70:8188" 
+WORKFLOW_JSON = os.path.join(BASE_PATH, "flux2_4B-distilled_Latent.json")
+INPUT_DIR = os.path.join(BASE_PATH, "ComfyUI", "input")
+SAVE_DIR = os.path.join(BASE_PATH, "images")
 
-    def __init__(self):
-        self.args = self.parse_args()
+# The number of images to generate per Enter press
+NUM_IMAGES_PER_TRIAL = 8 
 
-        self.ExplorationMethods = ["CMAES", "Bayesian", "Slerp"]
+CLIENT_ID = str(uuid.uuid4())
 
-        self.timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-        # Workflow file selection
-        self.workflow_file = (
-            "flux2_9B-distilled.json"
-            if self.args.params == "9B"
-            else "flux2_4B-distilled.json"
-        )
-
-        self.unet_node_id = "75:85" if self.args.params == "9B" else "75:81"
-        self.clip_node_id = "75:71"
-
-        if not os.path.exists(self.workflow_file):
-            raise FileNotFoundError(self.workflow_file)
-
-        with open(self.workflow_file, "r", encoding="utf-8") as f:
-            self.workflow_template = json.load(f)
-
-        self.workflow_file_latent = (
-            "flux2_9B-distilled.json"
-            if self.args.params == "9B"
-            else "flux2_4B-distilled.json"
-        )
-
-        self.unet_node_id = "75:85" if self.args.params == "9B" else "75:81"
-        self.clip_node_id = "75:71"
-
-        if not os.path.exists(self.workflow_file_latent):
-            raise FileNotFoundError(self.workflow_file_latent)
-
-        with open(self.workflow_file_latent, "r", encoding="utf-8") as f:
-            self.workflow_template_latent = json.load(f)
-
-        # Inject model names
-        if self.args.params == "4B":
-            self.workflow_template[self.unet_node_id]["inputs"]["unet_name"] = "flux-2-klein-4b.safetensors"
-            self.workflow_template[self.clip_node_id]["inputs"]["clip_name"] = "qwen_3_4b.safetensors"
-            self.workflow_template_latent[self.unet_node_id]["inputs"]["unet_name"] = "flux-2-klein-4b.safetensors"
-            self.workflow_template_latent[self.clip_node_id]["inputs"]["clip_name"] = "qwen_3_4b.safetensors"
-        else:
-            self.workflow_template[self.unet_node_id]["inputs"]["unet_name"] = "flux-2-klein-9b.safetensors"
-            self.workflow_template[self.clip_node_id]["inputs"]["clip_name"] = "qwen_3_8b_fp8mixed.safetensors"
-
-        # Cache node references (faster than dict lookup each call)
-        self.prompt_node = "76"
-        self.seed_node = "75:73"
-
-        # Network
-        self.server_address = "127.0.0.1:8188"
-        self.url = f"http://{self.server_address}/prompt"
-        self.session = requests.Session()
-
-        # Random generator
-        self.rng = random.Random()
-
-        print(f"--- Running {self.args.params} Workflow ---")
-        print(f"Exploration Method: {self.ExplorationMethods[self.args.ExplorationMethod - 1]}")
-        print(f"Prompt: {self.args.prompt}")
-        print(f"Batch Size: {self.args.batch}")
-
-        # Latent settings
-        self.expMeth = None
-
-        # Output directories
-        self.image_path = os.path.join(os.getcwd(), "output/images", self.timestamp)
-        self.csv_path = os.path.join(os.getcwd(), "output/csv", self.timestamp)
-
-        os.makedirs(self.image_path, exist_ok=True)
-        os.makedirs(self.csv_path, exist_ok=True)
-
-        try:
-            if self.args.ExplorationMethod == 1:
-                from ExplorationMethods.LatentCMAES import LatentCMAES
-                self.expMeth = LatentCMAES(
-                    latent_dim=None,
-                    num_images=self.args.batch,
-                    sigma_init=0.2,
-                    learning_rate=0.1,
-                    save_path=self.csv_path  # Pass the timestamped path here
-                )
-
-            elif self.args.ExplorationMethod == 2:
-                from ExplorationMethods.Bayesian import Bayesian
-                self.expMeth = Bayesian(latent_dim=self.latent_dim)
-
-            else:
-                from ExplorationMethods.Slerp import Slerp
-                self.expMeth = Slerp(latent_dim=self.latent_dim)
-
-        except ImportError as e:
-            raise ImportError(f"Exploration method import failed: {e}")
-
-
-    def parse_args(self):
-        parser = argparse.ArgumentParser(
-            description="Run Flux2 Klein Inference with HiL Exploration"
-        )
-
-        parser.add_argument(
-            "--prompt",
-            type=str,
-            default="a blue pikmin in on a mountain",
-            help="生成する画像のプロンプト"
-        )
-
-        parser.add_argument(
-            "--ExplorationMethod",
-            type=int,
-            choices=[1, 2, 3],
-            default=1,
-            help="潜在空間の探索手法; 1=CMAES, 2=Bayesian, 3=Slerp"
-        )
-
-        parser.add_argument(
-            "--params",
-            type=str,
-            choices=["4B", "9B"],
-            default="4B",
-            help="生成モデルのパラメータ数"
-        )
-
-        parser.add_argument(
-            "--batch",
-            type=int,
-            default=8,
-            help="生成する候補画像数"
-        )
-
-        parser.add_argument(
-            "--subject",
-            type=str,
-            default="testSubject",
-            help="被験者名"
-        )
-
-        return parser.parse_args()
-
-    def generate_flux_image(self, prompt, seed=None, new_vec=False):
-        """
-        Generates an image using either a text prompt or a pre-saved latent conditioning.
-        
-        Args:
-            prompt (str): The text prompt (used only if latent=False).
-            seed (int): Random noise seed.
-            latent (bool): If True, uses the LoadConditioning workflow. 
-                           If False (default), uses the standard Prompt workflow.
-        """
-        # 1. Select the appropriate template
-        # You should load 'flux2_latent_recursive.json' into self.latent_workflow_template in __init__
-        if new_vec:
-            workflow = self.latent_workflow_template.copy()
-            # Node 83 is the LoadConditioning node in your new JSON
-            # We set the path to where your CMA-ES saves the .cond file
-            cond_filename = "ComfyUI_latent.cond"
-            workflow["83"]["inputs"]["conditioning_path"] = f"conditioning/{cond_filename}"
-        else:
-            workflow = self.workflow_template.copy()
-            workflow[self.prompt_node]["inputs"]["value"] = prompt
-
-        # 2. Handle the Seed (Common to both workflows)
-        if seed is None:
-            seed = self.rng.randint(1, 10**15)
-        
-        # Node "75:73" remains the RandomNoise node in both of your JSONs
-        workflow["75:73"]["inputs"]["noise_seed"] = seed
-
-        # 3. Construct the Payload
-        payload = {
-            "prompt": workflow,
-            "client_id": str(uuid.uuid4())
-        }
-
-        # 4. API Call
-        try:
-            response = self.session.post(self.url, json=payload)
-            response.raise_for_status()
-            return response.json()["prompt_id"]
-
-        except requests.exceptions.ConnectionError:
-            print("[Network Error] ComfyUI connection failed. Check if server is running.")
-        except Exception as e:
-            print(f"[Generation error] {e}")
-
-        return None
+def upload_to_ec2(filepath, filename):
+    """Uploads a specific .cond file to the EC2 server."""
+    print(f"☁️ Uploading {filename} to EC2...")
+    url = f"http://{SERVER_ADDRESS}/upload/cond"
     
-    def get_latent(self):
-        csv_file = os.path.join(self.csv_path, "latent.csv")
-        
-        if not os.path.exists(csv_file):
-            print(f"latent.csv not found at : {csv_file}")
+    if not os.path.exists(filepath):
+        print(f"❌ Error: {filepath} not found.")
+        return False
 
-        try:
-            data = np.loadtxt(csv_file, delimiter=",", skiprows=1)
-            
-            # Ensure data is treated as 2D even if there's only one row
-            if data.ndim == 1:
-                data = data.reshape(1, -1)
+    with open(filepath, "rb") as f:
+        files = {"file": (filename, f)}
+        r = requests.post(url, files=files)
+    
+    if r.status_code == 200:
+        return True
+    else:
+        print(f"❌ Upload failed: {r.text}")
+        return False
+
+def run_generation(pos_name, subject_dir, trial_num, batch_size):
+    """Triggers generation for a batch of images via WebSocket."""
+    with open(WORKFLOW_JSON, "r", encoding="utf-8") as f:
+        wf = json.load(f)
+
+    # 1. LOAD CONDITIONING 
+    # Positive (Uploaded dynamically)
+    wf["75:83"] = {
+        "class_type": "LoadConditioning", 
+        "inputs": {"conditioning": pos_name}
+    }
+    # Negative (Uses your persistent neg.cond on the EC2 to satisfy validation)
+    wf["999:99"] = { 
+        "class_type": "LoadConditioning", 
+        "inputs": {"conditioning": "neg.cond"}
+    }
+
+    # 2. SET MODELS
+    if "75:72" in wf: wf["75:72"]["inputs"]["vae_name"] = "flux2-vae.safetensors"
+    if "75:81" in wf: wf["75:81"]["inputs"]["unet_name"] = "flux-2-klein-4b.safetensors"
+
+    # 3. SET CFG GUIDER
+    if "75:63" in wf:
+        wf["75:63"]["inputs"]["positive"] = ["75:83", 0]
+        wf["75:63"]["inputs"]["negative"] = ["999:99", 0] # Reconnected to satisfy validation
+        wf["75:63"]["inputs"]["cfg"] = 1.0
+
+    # 4. RANDOMIZE SEED 
+    if "75:73" in wf:
+        wf["75:73"]["inputs"]["noise_seed"] = torch.randint(0, 10**15, (1,)).item()
+
+    # 5. SET BATCH SIZE (Targeting EmptyFlux2LatentImage directly)
+    if "75:66" in wf:
+        wf["75:66"]["inputs"]["batch_size"] = batch_size
+    else:
+        # Fallback search just in case the ID changes
+        for node_id, node_info in wf.items():
+            if node_info.get("class_type") in ["EmptyLatentImage", "EmptyFlux2LatentImage"]:
+                node_info["inputs"]["batch_size"] = batch_size
+
+    # 6. TRIGGER AND WAIT
+    ws = websocket.create_connection(f"ws://{SERVER_ADDRESS}/ws?clientId={CLIENT_ID}")
+    resp = requests.post(f"http://{SERVER_ADDRESS}/prompt", json={"prompt": wf, "client_id": CLIENT_ID})
+    
+    if resp.status_code == 200:
+        prompt_id = resp.json().get("prompt_id")
+        
+        while True:
+            out = ws.recv()
+            if isinstance(out, str):
+                message = json.loads(out)
+                if message['type'] == 'executing':
+                    data = message['data']
+                    if data['node'] is None and data['prompt_id'] == prompt_id:
+                        break
+        
+        ws.close()
+        fetch_and_save_images(prompt_id, subject_dir, trial_num)
+    else:
+        print(f"❌ API Error: {resp.text}")
+
+def fetch_and_save_images(prompt_id, subject_dir, trial_num):
+    """Downloads all generated images in the batch and names them logically."""
+    history_url = f"http://{SERVER_ADDRESS}/history/{prompt_id}"
+    history = requests.get(history_url).json()[prompt_id]
+    
+    img_counter = 1 
+    
+    for node_id in history['outputs']:
+        node_output = history['outputs'][node_id]
+        if 'images' in node_output:
+            for image in node_output['images']:
+                filename = image['filename']
+                query = urllib.parse.urlencode({"filename": filename, "subfolder": image['subfolder'], "type": image['type']})
+                image_url = f"http://{SERVER_ADDRESS}/view?{query}"
                 
-            last_latent = data[-1]
-            
-            # Print length so you can set your latent_dim in the next run
-            print(f"Vector Length: {len(last_latent)}")
-            
-            if self.expMeth.mean is None:
-                self.expMeth.set_initial_mean(last_latent)
-                print(">>> CMA-ES Mean initialized")
-            
-            return last_latent
-        except Exception as e:
-            print(f"[Read Error] Could not read {csv_file}: {e}")
-            return None
+                img_data = requests.get(image_url).content
+                
+                if trial_num == 0:
+                    save_name = f"Warmup_Img{img_counter:02d}.png"
+                else:
+                    save_name = f"Trial{trial_num:02d}_Img{img_counter:02d}.png"
+                
+                save_path = os.path.join(subject_dir, save_name)
+                
+                with open(save_path, "wb") as f:
+                    f.write(img_data)
+                print(f"⭐ Saved: {save_path}")
+                img_counter += 1
+
+def run_experiment():
+    print("="*50)
+    print("🧠 Vie2Image EEG Experiment Controller")
+    print("="*50)
     
-    def get_mock_eeg_scores(self):
-        """Simulates an ERP 'Winner' selection (User picks index 3 out of 8)."""
-        # In research, replace this with your EEG trigger/classifier output
-        scores = [0.0] * self.args.batch
-        winner_idx = 2 # Image 3
-        scores[winner_idx] = 1.0
-        return scores
+    subject_name = input("\nEnter Subject Name (e.g., Subj01): ").strip()
+    prompt = input("Enter Prompt for this session: ").strip()
+
+    # Create Subject Folder
+    subject_dir = os.path.join(SAVE_DIR, subject_name)
+    os.makedirs(subject_dir, exist_ok=True)
+    os.makedirs(INPUT_DIR, exist_ok=True)
+
+    # Save Prompt Text
+    with open(os.path.join(subject_dir, "prompt.txt"), "w", encoding="utf-8") as f:
+        f.write(prompt)
+
+    # Generate Local Vector
+    print("\n>>> Generating Positive Conditioning Vector Locally...")
+    cond_filename = "pos.cond"
+    cond_filepath = os.path.join(INPUT_DIR, cond_filename)
     
+    vector_generator.generate_local_vectors(prompt, cond_filepath) 
+
+    # Upload to EC2
+    upload_to_ec2(cond_filepath, cond_filename)
+
+    # WARM UP (Trial 0) - Generate 1 image to load models into VRAM
+    print("\n>>> Warming up EC2 Pipeline (Testing connection and loading models to VRAM)...")
+    run_generation(cond_filename, subject_dir, trial_num=0, batch_size=1)
+    print("✅ Warm-up complete. Models are loaded in VRAM.")
+
+    # EXPERIMENT LOOP
+    trial_count = 1
+    while True:
+        print(f"\n--- Ready for Trial {trial_count} ---")
+        print(f"Press [ENTER] to generate a batch of {NUM_IMAGES_PER_TRIAL} images.")
+        print(f"Press [ESC] to exit experiment.")
+        
+        while True:
+            key = msvcrt.getch()
+            if key in (b'\r', b'\n'): # Enter Key
+                break
+            elif key == b'\x1b': # Esc Key
+                print("\n🛑 Exiting Experiment. Goodbye!")
+                sys.exit()
+
+        print(f"\n🚀 Processing Batch of {NUM_IMAGES_PER_TRIAL} for Trial {trial_count}...")
+        
+        run_generation(cond_filename, subject_dir, trial_count, batch_size=NUM_IMAGES_PER_TRIAL)
+            
+        print(f"✅ Trial {trial_count} complete!")
+        trial_count += 1
 
 if __name__ == "__main__":
-
-    flux = FluxInference()
-    new_vec = None
-
-    print("Press ENTER to generate an image.")
-    print("Press ESC to exit.")
-
-    while True:
-
-        if keyboard.is_pressed("esc"):
-            print("Exiting...")
-            break
-
-        if keyboard.is_pressed("enter"):
-            # If new_vec exists, we tell flux to use the latent-recursive JSON
-            is_latent_mode = True if new_vec is not None else False
-            
-            for _ in range(flux.args.batch):
-                # Corrected parameter name 'new_vec' instead of 'latent' to match your function sig
-                pid = flux.generate_flux_image(flux.args.prompt, new_vec=is_latent_mode)
-                
-                if pid:
-                    print(f"Queued prompt: {pid}")
-
-            print("\n>>> Wait for generation. Press SPACE to select winner.")
-            keyboard.wait("space")
-            
-            # 1. Get EEG Result (Scores)
-            scores = flux.get_mock_eeg_scores()
-            
-            # 2. Sync history to get current state (this initializes expMeth.mean)
-            last_vec_from_csv = flux.get_latent() 
-            
-            # 3. Trigger the update logic
-            # Passing scores updates the manifold and returns the updated mean vector
-            new_vec = flux.expMeth(scores)
-            
-            print(f">>> Manifold updated. Next batch will use evolved latent.")
-
-
-        keyboard.wait("enter", suppress=False)
+    run_experiment()

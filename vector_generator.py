@@ -3,7 +3,7 @@ import os
 import torch
 
 # --- 1. SETUP PATHS FIRST ---
-base_path = r"C:\Users\iizukar\Documents\GitHub\nttkk-Vie2Image"
+base_path = r"C:\Users\ibara\OneDrive\ドキュメント\GitHub\nttkk-Vie2Image"
 comfy_path = os.path.join(base_path, "ComfyUI")
 
 if comfy_path not in sys.path:

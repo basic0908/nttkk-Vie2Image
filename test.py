@@ -1,59 +1,45 @@
-import os
-import torch
-import safetensors.torch
-from safetensors import safe_open
+import websocket
+import requests
+import json
+import uuid
 
-# Update these paths to your local environment
-MODEL_PATH = r"C:\Users\iizukar\Documents\GitHub\nttkk-Vie2Image\ComfyUI\models\diffusion_models\flux-2-klein-4b.safetensors"
-LORA_OUTPUT_DIR = r"C:\Users\iizukar\Documents\GitHub\nttkk-Vie2Image\ComfyUI\models\loras"
+# --- CONFIG ---
+SERVER_ADDRESS = "13.193.97.70:8188"
+CLIENT_ID = str(uuid.uuid4())
 
-def create_flux_4b_lora(model_path, output_dir, rank=32):
-    """
-    Probes the 4B model and creates a compatible, zero-initialized LoRA.
-    Using Rank 32 to ensure stability with noisy EEG signals.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    state_dict = {}
+def test_connection():
+    print(f"--- Starting Connection Test to {SERVER_ADDRESS} ---")
     
-    # These strings target the main attention blocks in Flux transformers
-    target_subsets = ["img_attn.qkv", "txt_attn.qkv", "attn.qkv"]
-    
-    print(f"Probing model: {os.path.basename(model_path)}")
-    
+    # 1. Test HTTP API (The "Front Door")
     try:
-        with safe_open(model_path, framework="pt", device="cpu") as f:
-            for key in f.keys():
-                # We target weights in the double and single blocks
-                if any(sub in key for sub in target_subsets) and "weight" in key:
-                    # Get the actual shape from the 4B model
-                    # Flux weights are [Out, In]
-                    shape = f.get_slice(key).get_shape()
-                    out_dim, in_dim = shape[0], shape[1]
-                    
-                    # Clean the key for LoRA naming (remove '.weight')
-                    base_name = key.replace(".weight", "")
-                    
-                    # ComfyUI-style LoRA keys
-                    down_key = f"{base_name}.lora_down.weight"
-                    up_key = f"{base_name}.lora_up.weight"
-                    alpha_key = f"{base_name}.alpha"
-                    
-                    # Initialization
-                    # Down: Random (scaled) | Up: Zeros (Identity)
-                    state_dict[down_key] = torch.randn(rank, in_dim) * 0.01
-                    state_dict[up_key] = torch.zeros(out_dim, rank)
-                    state_dict[alpha_key] = torch.tensor(float(rank))
-                    
-                    print(f"Mapped {base_name}: [{in_dim} -> {out_dim}]")
-
-        # Save as Safetensor
-        output_path = os.path.join(output_dir, "flux2_4b_eeg_alignment.safetensors")
-        safetensors.torch.save_file(state_dict, output_path)
-        print(f"\n✅ Successfully created LoRA for 4B Model: {output_path}")
-        
+        print(f"1. Testing HTTP API...")
+        response = requests.get(f"http://{SERVER_ADDRESS}/object_info", timeout=5)
+        if response.status_code == 200:
+            print("   ✅ HTTP API is reachable.")
+        else:
+            print(f"   ❌ HTTP API returned status: {response.status_code}")
     except Exception as e:
-        print(f"❌ Error during probing: {e}")
+        print(f"   ❌ HTTP Connection Failed: {e}")
+        return
+
+    # 2. Test WebSocket (The "Live Feed")
+    try:
+        print(f"2. Testing WebSocket Handshake...")
+        ws = websocket.create_connection(f"ws://{SERVER_ADDRESS}/ws?clientId={CLIENT_ID}", timeout=5)
+        
+        # Send a small 'ping' or just wait for the initial 'status' message
+        result = ws.recv()
+        data = json.loads(result)
+        
+        if data.get('type') == 'status':
+            print("   ✅ WebSocket Handshake Successful.")
+            print("   ✅ EC2 sent status: Server is IDLE and ready.")
+        else:
+            print(f"   ⚠️ WebSocket connected but received unexpected data: {data['type']}")
+        
+        ws.close()
+    except Exception as e:
+        print(f"   ❌ WebSocket Connection Failed: {e}")
 
 if __name__ == "__main__":
-    # Recommend Rank 32 or 64 for EEG alignment to prevent overfitting to noise
-    create_flux_4b_lora(MODEL_PATH, LORA_OUTPUT_DIR, rank=64)
+    test_connection()

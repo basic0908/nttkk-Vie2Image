@@ -18,7 +18,7 @@ print("\n" + "="*50)
 print("🚀 INITIALIZING AWS FLUX.2-KLEIN SERVER (High-Speed Mode)")
 print("="*50)
 
-HF_TOKEN = "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" # Revoke when done testing!
+HF_TOKEN = "" # < ------ 自分のHugging Faceトークンをここに貼り付ける
 
 print("[1/2] Loading FLUX.2-klein-4B model into VRAM...")
 start_time = time.time()

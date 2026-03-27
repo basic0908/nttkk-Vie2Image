@@ -1,3 +1,5 @@
+<img width="1914" height="1039" alt="image" src="https://github.com/user-attachments/assets/a167eb1b-7b05-43b4-aa2e-6b92fd27fd5d" />
+
 # Brain-GenerativeAI Interface
 
 本プロジェクトでは、画像生成モデルに伴う高負荷な処理をクラウドにオフロードするため、AWSとローカル環境を連携させています。両環境間の通信にはFastAPIを使用しています。
